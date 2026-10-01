@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Layout, Menu, Spin, Typography, App as AntApp, Button, Space } from 'antd';
+import { Layout, Menu, Spin, Typography, App as AntApp, Button, Space, Dropdown } from 'antd';
 import {
   CompassOutlined,
   DatabaseOutlined,
@@ -7,10 +7,12 @@ import {
   ExperimentOutlined,
   ProfileOutlined,
   BarsOutlined,
+  FileExcelOutlined,
+  FileZipOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { seedIfEmpty } from './utils/seed';
-import { downloadText, exportBackupJson } from './utils/export';
+import { downloadText, exportBackupJson, exportAllResultsCsv } from './utils/export';
 import { useHoleStore } from './stores/holeStore';
 import { useRunStore } from './stores/runStore';
 import { useBoxStore } from './stores/boxStore';
@@ -59,10 +61,15 @@ export default function App() {
       .filter((key) => (key === '/' ? location.pathname === '/' : location.pathname.startsWith(key)))
       .sort((a, b) => b.length - a.length)[0] ?? '/';
 
-  const handleExport = async () => {
+  const handleBackup = async () => {
     const json = await exportBackupJson();
     downloadText(`gbdrillcore-backup-${new Date().toISOString().slice(0, 10)}.json`, json);
     message.success('已导出 IndexedDB 全量 JSON 备份');
+  };
+
+  const handleExportCsv = async () => {
+    await exportAllResultsCsv();
+    message.success('已导出回次 / 岩芯箱 / 岩性成果 CSV（均含孔深与垂深两套深度）');
   };
 
   return (
@@ -80,9 +87,16 @@ export default function App() {
         <Header style={{ background: '#fff', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text strong>矿区钻孔岩芯编目台</Text>
           <Space>
-            <Button icon={<DownloadOutlined />} onClick={handleExport}>
-              导出备份
-            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'csv', icon: <FileExcelOutlined />, label: '导出成果 CSV（孔深+垂深）', onClick: handleExportCsv },
+                  { key: 'json', icon: <FileZipOutlined />, label: '导出 JSON 备份', onClick: handleBackup },
+                ],
+              }}
+            >
+              <Button icon={<DownloadOutlined />}>导出</Button>
+            </Dropdown>
           </Space>
         </Header>
         <Content style={{ padding: 16 }}>

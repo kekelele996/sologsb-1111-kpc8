@@ -1,15 +1,19 @@
 import { useMemo, useState } from 'react';
-import { Alert, App as AntApp, Button, Card, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Col, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Col, Select, Space, Table, Tag, Typography, Segmented } from 'antd';
 import type { TableColumnsType } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import BoxGrid from '../components/common/BoxGrid';
 import DepthRangeInput from '../components/common/DepthRangeInput';
+import DepthRangeCell from '../components/common/DepthRangeCell';
 import EmptyPanel from '../components/common/EmptyPanel';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useBoxStore } from '../stores/boxStore';
+import { useDepthBasisStore } from '../stores/depthBasisStore';
+import { useTrajectory } from '../hooks/useTrajectory';
 import { SHELF_POSITIONS, type CoreBox, type BoxContinuity } from '../types/core-box';
-import { boxCapacityOk, checkBoxContinuity, validateRange } from '../utils/recovery';
+import { boxCapacityOk, checkBoxContinuity, gapsWithin, validateRange } from '../utils/recovery';
+import { convertRange, tvdAt } from '../utils/survey';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -51,6 +55,8 @@ export default function CoreBoxList() {
   const updateBox = useBoxStore((s) => s.updateBox);
   const removeBox = useBoxStore((s) => s.removeBox);
   const toggleDamagedSlot = useBoxStore((s) => s.toggleDamagedSlot);
+  const basis = useDepthBasisStore((s) => s.basis);
+  const setBasis = useDepthBasisStore((s) => s.setBasis);
 
   const [form] = Form.useForm<BoxFormValues>();
   const [open, setOpen] = useState(false);
@@ -61,13 +67,39 @@ export default function CoreBoxList() {
 
   const holeOptions = holes.map((hole) => ({ label: `${hole.holeNo} · ${hole.rigNo}`, value: hole.id }));
   const activeHoleId = currentHoleId || holes[0]?.id || '';
+  const activeTraj = useTrajectory(activeHoleId);
   const holeBoxes = useMemo(() => boxes.filter((b) => b.holeId === activeHoleId), [boxes, activeHoleId]);
   const selectedBox = useMemo(
     () => holeBoxes.find((b) => b.id === selectedBoxId) ?? holeBoxes[0],
     [holeBoxes, selectedBoxId],
   );
 
-  const continuityOf = (box: CoreBox): BoxContinuity => checkBoxContinuity(box, runs);
+  /** 连续性校验：孔深基准按孔深；垂深基准换算到垂深，测斜未覆盖段标待换算（不计断档） */
+  const continuityOf = (box: CoreBox): BoxContinuity => {
+    if (basis === 'md') return checkBoxContinuity(box, runs);
+    const boxConv = convertRange(box.fromDepth, box.toDepth, activeTraj);
+    if (boxConv.status === 'pending') {
+      const md = checkBoxContinuity(box, runs);
+      return { ...md, covered: false, gaps: [], message: `垂深待换算（测斜未覆盖该段）；孔深连续性：${md.message}` };
+    }
+    const mdGaps = gapsWithin(box.fromDepth, box.toDepth, runs.filter((r) => r.holeId === box.holeId));
+    const tvdGaps = mdGaps
+      .map((g) => {
+        const from = tvdAt(g.from, activeTraj);
+        const to = tvdAt(g.to, activeTraj);
+        return from !== null && to !== null ? { from, to } : null;
+      })
+      .filter((g): g is { from: number; to: number } => g !== null);
+    const covered = tvdGaps.length === 0;
+    return {
+      box,
+      covered,
+      gaps: tvdGaps,
+      message: covered
+        ? `垂深 ${boxConv.fromTvd}~${boxConv.toTvd}m 已被回次完整覆盖`
+        : `垂深 ${tvdGaps.map((g) => `${g.from}~${g.to}m`).join('、')} 无对应回次，装箱档位断档`,
+    };
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -152,7 +184,11 @@ export default function CoreBoxList() {
 
   const columns: TableColumnsType<CoreBox> = [
     { title: '箱号', dataIndex: 'boxNo', width: 130, render: (v: string) => <Text strong>{v}</Text> },
-    { title: '深度区间(m)', width: 130, render: (_, row) => `${row.fromDepth}~${row.toDepth}` },
+    {
+      title: `深度区间（${basis === 'md' ? '孔深主显' : '垂深主显'}）`,
+      width: 170,
+      render: (_, row) => <DepthRangeCell holeId={row.holeId} fromDepth={row.fromDepth} toDepth={row.toDepth} basis={basis} />,
+    },
     { title: '格数', dataIndex: 'slots', width: 70, align: 'right' },
     { title: '每格长度(m)', dataIndex: 'slotLength', width: 110, align: 'right' },
     { title: '库架位', dataIndex: 'shelfPos', width: 110 },
@@ -212,6 +248,14 @@ export default function CoreBoxList() {
         <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
           新建岩芯箱
         </Button>
+        <Segmented
+          value={basis}
+          onChange={(v) => setBasis(v as 'md' | 'tvd')}
+          options={[
+            { label: '按孔深', value: 'md' },
+            { label: '按垂深', value: 'tvd' },
+          ]}
+        />
       </Space>
 
       {holeBoxes.length === 0 ? (
@@ -233,7 +277,7 @@ export default function CoreBoxList() {
             >
               {selectedBox ? (
                 <>
-                  <BoxGrid box={selectedBox} runs={runs} onToggleDamaged={(slot) => toggleDamagedSlot(selectedBox.id, slot)} />
+                  <BoxGrid box={selectedBox} runs={runs} basis={basis} onToggleDamaged={(slot) => toggleDamagedSlot(selectedBox.id, slot)} />
                   <Alert
                     style={{ marginTop: 10 }}
                     type={continuityOf(selectedBox).covered ? 'success' : 'warning'}

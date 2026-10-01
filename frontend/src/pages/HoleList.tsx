@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
-import { Alert, App as AntApp, Button, Card, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Typography, Segmented } from 'antd';
 import type { TableColumnsType } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import FilterBar from '../components/common/FilterBar';
 import EmptyPanel from '../components/common/EmptyPanel';
+import DepthRangeCell from '../components/common/DepthRangeCell';
+import SurveyManager from '../components/common/SurveyManager';
 import { useHoleFilter } from '../hooks/useHoleFilter';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useBoxStore } from '../stores/boxStore';
+import { useDepthBasisStore } from '../stores/depthBasisStore';
 import { RIG_NOS, SHIFTS, type DrillHole, type SurveyPoint } from '../types/drill-hole';
 import { mergeRanges } from '../utils/recovery';
 import { uid } from '../utils/id';
@@ -58,17 +61,16 @@ export default function HoleList() {
   const boxes = useBoxStore((s) => s.boxes);
 
   const filter = useHoleFilter();
+  const basis = useDepthBasisStore((s) => s.basis);
+  const setBasis = useDepthBasisStore((s) => s.setBasis);
   const [form] = Form.useForm<HoleFormValues>();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DrillHole | null>(null);
 
   const visible = useMemo(() => filter.apply(holes), [holes, filter]);
 
-  const coverageText = (holeId: string) => {
-    const merged = mergeRanges(runs.filter((run) => run.holeId === holeId).map((run) => ({ from: run.fromDepth, to: run.toDepth })));
-    if (merged.length === 0) return '尚无回次';
-    return merged.map((range) => `${range.from}~${range.to}m`).join('、');
-  };
+  const coverageRanges = (holeId: string) =>
+    mergeRanges(runs.filter((run) => run.holeId === holeId).map((run) => ({ from: run.fromDepth, to: run.toDepth })));
 
   const openCreate = () => {
     setEditing(null);
@@ -108,7 +110,7 @@ export default function HoleList() {
 
   const submit = async () => {
     const values = await form.validateFields();
-    const payload = {
+    const base = {
       holeNo: values.holeNo,
       coordX: Number(values.coordX) || 0,
       coordY: Number(values.coordY) || 0,
@@ -119,15 +121,15 @@ export default function HoleList() {
       endDate: values.endDate ? values.endDate.toISOString() : undefined,
       rigNo: values.rigNo,
       shift: values.shift,
-      surveyData: parseSurvey(values.surveyText),
       remark: values.remark,
     };
     if (editing) {
-      await updateHole(editing.id, payload);
-      message.success(`已更新钻孔 ${payload.holeNo}`);
+      // 测斜成果由 SurveyManager 按孔深合并/去重/补测维护，编辑钻孔基本信息不覆盖测点
+      await updateHole(editing.id, base);
+      message.success(`已更新钻孔 ${base.holeNo}`);
     } else {
-      await addHole(payload);
-      message.success(`已建孔 ${payload.holeNo}`);
+      await addHole({ ...base, surveyData: parseSurvey(values.surveyText) });
+      message.success(`已建孔 ${base.holeNo}`);
     }
     setOpen(false);
   };
@@ -141,9 +143,19 @@ export default function HoleList() {
     { title: '设计孔深(m)', dataIndex: 'designDepth', width: 110, align: 'right' },
     { title: '终孔深度(m)', dataIndex: 'finalDepth', width: 110, align: 'right', render: (v: number) => (v > 0 ? v : '-') },
     {
-      title: '深度覆盖（回次）',
-      width: 260,
-      render: (_, row) => <span style={{ fontSize: 12 }}>{coverageText(row.id)}</span>,
+      title: `深度覆盖（回次·${basis === 'md' ? '孔深' : '垂深'}）`,
+      width: 280,
+      render: (_, row) => {
+        const ranges = coverageRanges(row.id);
+        if (ranges.length === 0) return <Text type="secondary">尚无回次</Text>;
+        return (
+          <Space size={[4, 4]} wrap>
+            {ranges.map((r, i) => (
+              <DepthRangeCell key={i} holeId={row.id} fromDepth={r.from} toDepth={r.to} basis={basis} />
+            ))}
+          </Space>
+        );
+      },
     },
     { title: '岩芯箱', width: 90, align: 'right', render: (_, row) => `${boxes.filter((b) => b.holeId === row.id).length} 箱` },
     { title: '测斜点', width: 90, align: 'right', render: (_, row) => `${row.surveyData.length} 点` },
@@ -189,10 +201,21 @@ export default function HoleList() {
       </Title>
       <Paragraph type="secondary">登记钻孔坐标、孔口标高、设计孔深与测斜数据，并回显回次深度覆盖与岩芯箱数量。</Paragraph>
 
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Button type="primary" onClick={openCreate}>
           新建钻孔
         </Button>
+        <Segmented
+          value={basis}
+          onChange={(v) => setBasis(v as 'md' | 'tvd')}
+          options={[
+            { label: '按孔深显示', value: 'md' },
+            { label: '按垂深显示', value: 'tvd' },
+          ]}
+        />
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          垂深由测斜成果换算，待换算段保留孔深并标记
+        </Text>
       </Space>
 
       <FilterBar
@@ -265,9 +288,15 @@ export default function HoleList() {
               <DatePicker style={{ width: 180 }} />
             </Form.Item>
           </Space>
-          <Form.Item name="surveyText" label="测斜数据（每行：深度,倾角,方位角）">
-            <Input.TextArea rows={3} placeholder={'50,88.5,132\n100,87.2,133.5'} />
-          </Form.Item>
+          {editing ? (
+            <Form.Item label="测斜成果（测量组提供，按孔深管理）">
+              <SurveyManager holeId={editing.id} />
+            </Form.Item>
+          ) : (
+            <Form.Item name="surveyText" label="测斜数据（每行：深度,倾角,方位角）">
+              <Input.TextArea rows={3} placeholder={'50,88.5,132\n100,87.2,133.5'} />
+            </Form.Item>
+          )}
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={2} maxLength={80} placeholder="设计见矿层位等" />
           </Form.Item>

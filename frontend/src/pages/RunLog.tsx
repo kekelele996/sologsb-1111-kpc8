@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
-import { Alert, App as AntApp, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Typography, Segmented } from 'antd';
 import type { TableColumnsType } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import StatBadge from '../components/common/StatBadge';
 import RecoveryBadge from '../components/common/RecoveryBadge';
 import DepthRangeInput from '../components/common/DepthRangeInput';
+import DepthRangeCell from '../components/common/DepthRangeCell';
 import EmptyPanel from '../components/common/EmptyPanel';
 import { useDepthCalc } from '../hooks/useDepthCalc';
+import { useTrajectory } from '../hooks/useTrajectory';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
+import { useDepthBasisStore } from '../stores/depthBasisStore';
 import { SHIFTS } from '../types/drill-hole';
 import type { DrillRun, RunShift } from '../types/drill-run';
+import { convertRange } from '../utils/survey';
 import { footageOf, recoveryOf, validateRange } from '../utils/recovery';
 
 const { Title, Paragraph, Text } = Typography;
@@ -39,6 +43,8 @@ export default function RunLog() {
   const updateRun = useRunStore((s) => s.updateRun);
   const removeRun = useRunStore((s) => s.removeRun);
   const { runsOf, summarize } = useDepthCalc();
+  const basis = useDepthBasisStore((s) => s.basis);
+  const setBasis = useDepthBasisStore((s) => s.setBasis);
 
   const [form] = Form.useForm<RunFormValues>();
   const [open, setOpen] = useState(false);
@@ -50,6 +56,17 @@ export default function RunLog() {
   const holeOptions = holes.map((hole) => ({ label: `${hole.holeNo} · ${hole.rigNo}`, value: hole.id }));
   const activeHoleId = currentHoleId || holes[0]?.id || '';
   const summary = useMemo(() => summarize(activeHoleId), [summarize, activeHoleId]);
+  const traj = useTrajectory(activeHoleId);
+  const coverageText = useMemo(() => {
+    if (!summary.coverage.length) return '尚无回次';
+    return summary.coverage
+      .map((r) => {
+        if (basis === 'md') return `${r.from}~${r.to}m`;
+        const c = convertRange(r.from, r.to, traj);
+        return c.status === 'ok' && c.fromTvd !== null && c.toTvd !== null ? `${c.fromTvd}~${c.toTvd}m` : `${r.from}~${r.to}m(孔深·待换算)`;
+      })
+      .join('、');
+  }, [summary.coverage, basis, traj]);
   const tableRuns = useMemo(() => [...summary.runs].sort((a, b) => b.fromDepth - a.fromDepth), [summary.runs]);
 
   const openCreate = () => {
@@ -127,7 +144,11 @@ export default function RunLog() {
 
   const columns: TableColumnsType<DrillRun> = [
     { title: '回次号', dataIndex: 'runNo', width: 110, render: (v: string) => <Text strong>{v}</Text> },
-    { title: '深度区间(m)', width: 140, render: (_, row) => `${row.fromDepth}~${row.toDepth}` },
+    {
+      title: `深度区间（${basis === 'md' ? '孔深主显' : '垂深主显'}）`,
+      width: 170,
+      render: (_, row) => <DepthRangeCell holeId={row.holeId} fromDepth={row.fromDepth} toDepth={row.toDepth} basis={basis} />,
+    },
     { title: '进尺(m)', dataIndex: 'footage', width: 100, align: 'right' },
     { title: '岩芯长度(m)', dataIndex: 'coreLength', width: 120, align: 'right' },
     { title: '采取率', dataIndex: 'recovery', width: 140, render: (v: number) => <RecoveryBadge recovery={v} showAdvice /> },
@@ -171,8 +192,16 @@ export default function RunLog() {
         <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
           录入回次
         </Button>
+        <Segmented
+          value={basis}
+          onChange={(v) => setBasis(v as 'md' | 'tvd')}
+          options={[
+            { label: '孔深', value: 'md' },
+            { label: '垂深', value: 'tvd' },
+          ]}
+        />
         <Text type="secondary">
-          深度覆盖：{summary.coverage.length ? summary.coverage.map((r) => `${r.from}~${r.to}m`).join('、') : '尚无回次'}
+          深度覆盖（{basis === 'md' ? '孔深' : '垂深'}）：{coverageText}
         </Text>
       </Space>
 

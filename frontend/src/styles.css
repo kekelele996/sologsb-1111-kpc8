@@ -29,3 +29,8 @@ a {
 .conflict-row > td {
   background: #fff1f0 !important;
 }
+
+/* 测斜换算：失败测段行高亮 */
+.survey-fail-row > td {
+  background: #fff7e6 !important;
+}

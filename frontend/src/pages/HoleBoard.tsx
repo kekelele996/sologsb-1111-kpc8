@@ -1,24 +1,29 @@
 import { useMemo } from 'react';
-import { Alert, Button, Card, Col, Progress, Row, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Progress, Row, Space, Table, Tag, Typography, Segmented } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { Link } from 'react-router-dom';
 import StatBadge from '../components/common/StatBadge';
 import RecoveryBadge from '../components/common/RecoveryBadge';
 import FilterBar from '../components/common/FilterBar';
+import DepthValue from '../components/common/DepthValue';
+import DepthRangeCell from '../components/common/DepthRangeCell';
 import { useHoleFilter } from '../hooks/useHoleFilter';
 import { useHoleStore, holeProgressList } from '../stores/holeStore';
 import { useRunStore, anomalyList } from '../stores/runStore';
+import { useDepthBasisStore } from '../stores/depthBasisStore';
 import { RIG_NOS, SHIFTS, type HoleProgress } from '../types/drill-hole';
 import type { RunAnomaly } from '../types/drill-run';
 import { isAnomaly } from '../utils/recovery';
 
 const { Title, Paragraph, Text } = Typography;
 
-/** 工作台：钻孔进度与采取率异常清单（低于 75% 标红） */
+/** 工作台：钻孔进度与采取率异常清单（低于 75% 标红）；深度按孔深/垂深基准显示 */
 export default function HoleBoard() {
   const holes = useHoleStore((s) => s.holes);
   const runs = useRunStore((s) => s.runs);
   const filter = useHoleFilter();
+  const basis = useDepthBasisStore((s) => s.basis);
+  const setBasis = useDepthBasisStore((s) => s.setBasis);
 
   const visibleHoles = useMemo(() => filter.apply(holes), [holes, filter]);
   const progress = useMemo(() => holeProgressList(visibleHoles, runs), [visibleHoles, runs]);
@@ -42,8 +47,18 @@ export default function HoleBoard() {
     { title: '孔号', width: 110, render: (_, row) => <Text strong>{row.hole.holeNo}</Text> },
     { title: '钻机', width: 90, render: (_, row) => row.hole.rigNo },
     { title: '班组', width: 80, render: (_, row) => row.hole.shift },
-    { title: '设计孔深(m)', width: 110, align: 'right', render: (_, row) => row.hole.designDepth },
-    { title: '已达深度(m)', width: 110, align: 'right', render: (_, row) => row.reachedDepth },
+    {
+      title: `设计孔深(${basis === 'md' ? '孔深' : '垂深'}·m)`,
+      width: 150,
+      align: 'right',
+      render: (_, row) => <DepthValue md={row.hole.designDepth} holeId={row.hole.id} basis={basis} />,
+    },
+    {
+      title: `已达深度(${basis === 'md' ? '孔深' : '垂深'}·m)`,
+      width: 170,
+      align: 'right',
+      render: (_, row) => <DepthValue md={row.reachedDepth} holeId={row.hole.id} basis={basis} />,
+    },
     {
       title: '设计达成率',
       width: 190,
@@ -80,9 +95,9 @@ export default function HoleBoard() {
     { title: '孔号', width: 100, render: (_, row) => row.holeNo },
     { title: '回次号', width: 110, render: (_, row) => row.run.runNo },
     {
-      title: '深度区间(m)',
-      width: 130,
-      render: (_, row) => `${row.run.fromDepth}~${row.run.toDepth}`,
+      title: `深度区间(${basis === 'md' ? '孔深' : '垂深'}·m)`,
+      width: 170,
+      render: (_, row) => <DepthRangeCell holeId={row.run.holeId} fromDepth={row.run.fromDepth} toDepth={row.run.toDepth} basis={basis} />,
     },
     { title: '进尺(m)', width: 90, align: 'right', render: (_, row) => row.run.footage },
     { title: '岩芯长度(m)', width: 110, align: 'right', render: (_, row) => row.run.coreLength },
@@ -147,6 +162,16 @@ export default function HoleBoard() {
         keywordPlaceholder="搜索孔号 / 钻机 / 备注"
         resultCount={visibleHoles.length}
         totalCount={holes.length}
+        extra={
+          <Segmented
+            value={basis}
+            onChange={(v) => setBasis(v as 'md' | 'tvd')}
+            options={[
+              { label: '深度按孔深', value: 'md' },
+              { label: '深度按垂深', value: 'tvd' },
+            ]}
+          />
+        }
       />
 
       <Row gutter={[16, 16]}>

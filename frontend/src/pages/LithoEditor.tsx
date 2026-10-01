@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Alert, App as AntApp, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, Segmented } from 'antd';
 import type { TableColumnsType } from 'antd';
 import DepthRangeInput from '../components/common/DepthRangeInput';
+import DepthRangeCell from '../components/common/DepthRangeCell';
 import LithoColumn from '../components/common/LithoColumn';
 import EmptyPanel from '../components/common/EmptyPanel';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useLithoStore } from '../stores/lithoStore';
+import { useDepthBasisStore } from '../stores/depthBasisStore';
 import {
   ALTERATIONS,
   LITHOLOGIES,
@@ -46,6 +48,8 @@ export default function LithoEditor() {
   const updateLitho = useLithoStore((s) => s.updateLitho);
   const removeLitho = useLithoStore((s) => s.removeLitho);
   const checkConflicts = useLithoStore((s) => s.checkConflicts);
+  const basis = useDepthBasisStore((s) => s.basis);
+  const setBasis = useDepthBasisStore((s) => s.setBasis);
 
   const [form] = Form.useForm<LithoFormValues>();
   const [open, setOpen] = useState(false);
@@ -159,7 +163,11 @@ export default function LithoEditor() {
   };
 
   const columns: TableColumnsType<LithoLog> = [
-    { title: '深度区间(m)', width: 130, render: (_, row) => <Text strong>{`${row.fromDepth}~${row.toDepth}`}</Text> },
+    {
+      title: `深度区间（${basis === 'md' ? '孔深主显' : '垂深主显'}）`,
+      width: 170,
+      render: (_, row) => <DepthRangeCell holeId={row.holeId} fromDepth={row.fromDepth} toDepth={row.toDepth} basis={basis} />,
+    },
     { title: '厚度(m)', width: 90, align: 'right', render: (_, row) => Number((row.toDepth - row.fromDepth).toFixed(2)) },
     { title: '岩性', dataIndex: 'lithology', width: 130, render: (v: string) => <Tag color="geekblue">{v}</Tag> },
     { title: '颜色', dataIndex: 'color', width: 90 },
@@ -203,6 +211,14 @@ export default function LithoEditor() {
         <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
           新增岩性区间
         </Button>
+        <Segmented
+          value={basis}
+          onChange={(v) => setBasis(v as 'md' | 'tvd')}
+          options={[
+            { label: '按孔深', value: 'md' },
+            { label: '按垂深', value: 'tvd' },
+          ]}
+        />
         <Tag color="blue">已编录 {holeLogs.length} 段</Tag>
         <Tag color={coverageRatio >= 80 ? 'green' : 'orange'}>设计孔深覆盖率 {coverageRatio}%</Tag>
         <Tag color="red">冲突高亮 {conflictIds.length} 段</Tag>
@@ -235,7 +251,7 @@ export default function LithoEditor() {
             </Card>
           </Col>
           <Col xs={24} lg={8}>
-            <LithoColumn logs={holeLogs} runs={holeRuns} maxDepth={activeHole?.designDepth} />
+            <LithoColumn logs={holeLogs} runs={holeRuns} maxDepth={activeHole?.designDepth} basis={basis} />
           </Col>
         </Row>
       )}
