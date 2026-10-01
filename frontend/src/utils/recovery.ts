@@ -79,9 +79,13 @@ export function mergeRanges(ranges: Array<{ from: number; to: number }>): Array<
   return merged;
 }
 
-/** [fromDepth, toDepth] 内未被覆盖的断档区间 */
-export function gapsWithin(fromDepth: number, toDepth: number, runs: DrillRun[]): Array<{ from: number; to: number }> {
-  const merged = mergeRanges(runs.map((run) => ({ from: run.fromDepth, to: run.toDepth })));
+/** [fromDepth, toDepth] 内未被区间集合覆盖的断档区间（孔深、垂深空间通用） */
+export function gapsWithinRanges(
+  fromDepth: number,
+  toDepth: number,
+  ranges: Array<{ from: number; to: number }>,
+): Array<{ from: number; to: number }> {
+  const merged = mergeRanges(ranges);
   const gaps: Array<{ from: number; to: number }> = [];
   let cursor = fromDepth;
   merged.forEach((range) => {
@@ -95,6 +99,15 @@ export function gapsWithin(fromDepth: number, toDepth: number, runs: DrillRun[])
     gaps.push({ from: Number(cursor.toFixed(2)), to: Number(toDepth.toFixed(2)) });
   }
   return gaps.filter((gap) => gap.to - gap.from > 0.0001);
+}
+
+/** [fromDepth, toDepth] 内未被回次覆盖的断档区间 */
+export function gapsWithin(fromDepth: number, toDepth: number, runs: DrillRun[]): Array<{ from: number; to: number }> {
+  return gapsWithinRanges(
+    fromDepth,
+    toDepth,
+    runs.map((run) => ({ from: run.fromDepth, to: run.toDepth })),
+  );
 }
 
 /** 已钻进深度（最大止深度） */

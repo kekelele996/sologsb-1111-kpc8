@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { seedIfEmpty } from './utils/seed';
-import { downloadText, exportBackupJson } from './utils/export';
+import { downloadResultsCsv, downloadText, exportBackupJson } from './utils/export';
 import { useHoleStore } from './stores/holeStore';
 import { useRunStore } from './stores/runStore';
 import { useBoxStore } from './stores/boxStore';
@@ -65,6 +65,11 @@ export default function App() {
     message.success('已导出 IndexedDB 全量 JSON 备份');
   };
 
+  const handleExportResults = async () => {
+    const count = await downloadResultsCsv();
+    message.success(`已导出成果 CSV（${count} 行，孔深 / 垂深两套深度并列）`);
+  };
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider breakpoint="lg" collapsedWidth="0" width={204} style={{ background: '#2b3a46' }}>
@@ -80,6 +85,9 @@ export default function App() {
         <Header style={{ background: '#fff', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text strong>矿区钻孔岩芯编目台</Text>
           <Space>
+            <Button icon={<DownloadOutlined />} onClick={handleExportResults}>
+              导出成果
+            </Button>
             <Button icon={<DownloadOutlined />} onClick={handleExport}>
               导出备份
             </Button>

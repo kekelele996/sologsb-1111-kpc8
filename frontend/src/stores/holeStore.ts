@@ -4,6 +4,7 @@ import { uid } from '../utils/id';
 import type { DrillHole, HoleProgress, SurveyPoint } from '../types/drill-hole';
 import type { DrillRun } from '../types/drill-run';
 import { buildHoleProgress } from '../utils/recovery';
+import { mergeSurveyPoints, type SurveyMergeResult } from '../utils/survey';
 
 export interface HoleInput {
   holeNo: string;
@@ -29,6 +30,8 @@ interface HoleState {
   addHole: (input: HoleInput) => Promise<DrillHole>;
   updateHole: (id: string, patch: Partial<HoleInput>) => Promise<void>;
   removeHole: (id: string) => Promise<void>;
+  /** 合并测量组补送的测斜成果：按测点孔深去重，重复补送不多出测点 */
+  mergeSurvey: (holeId: string, incoming: SurveyPoint[]) => Promise<SurveyMergeResult>;
   /** 当前钻孔 */
   currentHole: () => DrillHole | undefined;
 }
@@ -78,6 +81,16 @@ export const useHoleStore = create<HoleState>()((set, get) => ({
   removeHole: async (id) => {
     await db.holes.delete(id);
     set({ holes: get().holes.filter((h) => h.id !== id) });
+  },
+
+  mergeSurvey: async (holeId, incoming) => {
+    const current = get().holes.find((h) => h.id === holeId);
+    if (!current) return { merged: [], added: 0, updated: 0, unchanged: 0 };
+    const stats = mergeSurveyPoints(current.surveyData, incoming);
+    const next: DrillHole = { ...current, surveyData: stats.merged };
+    await db.holes.put(next);
+    set({ holes: get().holes.map((h) => (h.id === holeId ? next : h)) });
+    return stats;
   },
 
   currentHole: () => get().holes.find((h) => h.id === get().currentHoleId),

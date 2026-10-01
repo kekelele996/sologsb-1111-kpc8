@@ -6,12 +6,15 @@ import StatBadge from '../components/common/StatBadge';
 import RecoveryBadge from '../components/common/RecoveryBadge';
 import DepthRangeInput from '../components/common/DepthRangeInput';
 import EmptyPanel from '../components/common/EmptyPanel';
+import TvdRange from '../components/common/TvdRange';
 import { useDepthCalc } from '../hooks/useDepthCalc';
+import { useSurveyTracks } from '../hooks/useSurvey';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { SHIFTS } from '../types/drill-hole';
 import type { DrillRun, RunShift } from '../types/drill-run';
 import { footageOf, recoveryOf, validateRange } from '../utils/recovery';
+import { convertSegment, EMPTY_TRACK } from '../utils/survey';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -39,6 +42,7 @@ export default function RunLog() {
   const updateRun = useRunStore((s) => s.updateRun);
   const removeRun = useRunStore((s) => s.removeRun);
   const { runsOf, summarize } = useDepthCalc();
+  const tracks = useSurveyTracks();
 
   const [form] = Form.useForm<RunFormValues>();
   const [open, setOpen] = useState(false);
@@ -127,7 +131,12 @@ export default function RunLog() {
 
   const columns: TableColumnsType<DrillRun> = [
     { title: '回次号', dataIndex: 'runNo', width: 110, render: (v: string) => <Text strong>{v}</Text> },
-    { title: '深度区间(m)', width: 140, render: (_, row) => `${row.fromDepth}~${row.toDepth}` },
+    { title: '孔深区间(m)', width: 130, render: (_, row) => `${row.fromDepth}~${row.toDepth}` },
+    {
+      title: '垂深区间(m)',
+      width: 140,
+      render: (_, row) => <TvdRange conversion={convertSegment(tracks.get(row.holeId) ?? EMPTY_TRACK, row.fromDepth, row.toDepth)} />,
+    },
     { title: '进尺(m)', dataIndex: 'footage', width: 100, align: 'right' },
     { title: '岩芯长度(m)', dataIndex: 'coreLength', width: 120, align: 'right' },
     { title: '采取率', dataIndex: 'recovery', width: 140, render: (v: number) => <RecoveryBadge recovery={v} showAdvice /> },
@@ -163,7 +172,9 @@ export default function RunLog() {
       <Title level={3} style={{ marginBottom: 4 }}>
         回次记录
       </Title>
-      <Paragraph type="secondary">录入起止深度与岩芯长度，系统自动计算进尺与采取率；采取率低于 75% 立即标红并进入异常清单。</Paragraph>
+      <Paragraph type="secondary">
+        录入起止深度与岩芯长度，系统自动计算进尺与采取率；采取率低于 75% 立即标红并进入异常清单。深度区间按孔深记录，垂深由测斜成果换算、只读展示。
+      </Paragraph>
 
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
@@ -200,7 +211,7 @@ export default function RunLog() {
         <EmptyPanel description="该孔暂无回次记录" actionText="录入回次" onAction={openCreate} />
       ) : (
         <Card size="small">
-          <Table rowKey="id" size="small" columns={columns} dataSource={tableRuns} pagination={{ pageSize: 10 }} scroll={{ x: 1300 }} />
+          <Table rowKey="id" size="small" columns={columns} dataSource={tableRuns} pagination={{ pageSize: 10 }} scroll={{ x: 1440 }} />
         </Card>
       )}
 

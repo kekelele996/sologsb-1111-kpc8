@@ -42,6 +42,7 @@ export const SEED_HOLES: DrillHole[] = [
     surveyData: [
       { id: 'sv-002-1', depth: 80, dip: 89.1, azimuth: 128 },
       { id: 'sv-002-2', depth: 180, dip: 87.8, azimuth: 129.4 },
+      { id: 'sv-002-3', depth: 250, dip: 87.0, azimuth: 130.2 },
     ],
     remark: '已终孔并完成编录',
   },
@@ -61,6 +62,7 @@ export const SEED_HOLES: DrillHole[] = [
       { id: 'sv-003-1', depth: 100, dip: 86.9, azimuth: 141 },
       { id: 'sv-003-2', depth: 200, dip: 85.1, azimuth: 142.6 },
       { id: 'sv-003-3', depth: 300, dip: 83.4, azimuth: 143.8 },
+      { id: 'sv-003-4', depth: 320, dip: 82.8, azimuth: 144.5 },
     ],
     remark: '孔内坍塌提前终孔，未达设计孔深',
   },
@@ -76,7 +78,10 @@ export const SEED_HOLES: DrillHole[] = [
     endDate: daysAgo(18),
     rigNo: 'HGY-300',
     shift: '丙班',
-    surveyData: [{ id: 'sv-004-1', depth: 90, dip: 89.4, azimuth: 120 }],
+    surveyData: [
+      { id: 'sv-004-1', depth: 90, dip: 89.4, azimuth: 120 },
+      { id: 'sv-004-2', depth: 180, dip: 88.9, azimuth: 121.3 },
+    ],
   },
   {
     id: 'hole-005',

@@ -5,12 +5,13 @@ import dayjs, { type Dayjs } from 'dayjs';
 import FilterBar from '../components/common/FilterBar';
 import EmptyPanel from '../components/common/EmptyPanel';
 import { useHoleFilter } from '../hooks/useHoleFilter';
+import { useSurveyTracks } from '../hooks/useSurvey';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useBoxStore } from '../stores/boxStore';
 import { RIG_NOS, SHIFTS, type DrillHole, type SurveyPoint } from '../types/drill-hole';
 import { mergeRanges } from '../utils/recovery';
-import { uid } from '../utils/id';
+import { parseSurveyText } from '../utils/survey';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -29,38 +30,31 @@ interface HoleFormValues {
   remark?: string;
 }
 
-/** 解析测斜文本：每行「深度,倾角,方位角」 */
-function parseSurvey(text: string | undefined): SurveyPoint[] {
-  if (!text) return [];
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [depth, dip, azimuth] = line.split(/[,，\s]+/).map((v) => Number(v));
-      return { id: uid('sv'), depth: depth || 0, dip: dip || 0, azimuth: azimuth || 0 };
-    });
-}
-
 function surveyToText(points: SurveyPoint[]): string {
   return points.map((p) => `${p.depth},${p.dip},${p.azimuth}`).join('\n');
 }
 
-/** 钻孔台帐：新建钻孔并回显深度覆盖 */
+/** 钻孔台帐：新建钻孔并回显深度覆盖；测斜成果单独维护，只用于换算垂深 */
 export default function HoleList() {
   const { message } = AntApp.useApp();
   const holes = useHoleStore((s) => s.holes);
   const addHole = useHoleStore((s) => s.addHole);
   const updateHole = useHoleStore((s) => s.updateHole);
   const removeHole = useHoleStore((s) => s.removeHole);
+  const mergeSurvey = useHoleStore((s) => s.mergeSurvey);
   const runs = useRunStore((s) => s.runs);
   const removeRunsByHole = useRunStore((s) => s.removeByHole);
   const boxes = useBoxStore((s) => s.boxes);
+  const tracks = useSurveyTracks();
 
   const filter = useHoleFilter();
   const [form] = Form.useForm<HoleFormValues>();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DrillHole | null>(null);
+  /** 测量组补送测斜成果的合并弹窗 */
+  const [importHole, setImportHole] = useState<DrillHole | null>(null);
+  const [importText, setImportText] = useState('');
+  const [importErrors, setImportErrors] = useState<Array<{ line: number; text: string; reason: string }>>([]);
 
   const visible = useMemo(() => filter.apply(holes), [holes, filter]);
 
@@ -108,6 +102,13 @@ export default function HoleList() {
 
   const submit = async () => {
     const values = await form.validateFields();
+    const parsed = parseSurveyText(values.surveyText);
+    if (parsed.errors.length > 0) {
+      message.error(
+        `测斜成果存在 ${parsed.errors.length} 行无效：${parsed.errors.map((e) => `第 ${e.line} 行（${e.reason}）`).join('；')}`,
+      );
+      return;
+    }
     const payload = {
       holeNo: values.holeNo,
       coordX: Number(values.coordX) || 0,
@@ -119,17 +120,46 @@ export default function HoleList() {
       endDate: values.endDate ? values.endDate.toISOString() : undefined,
       rigNo: values.rigNo,
       shift: values.shift,
-      surveyData: parseSurvey(values.surveyText),
+      surveyData: parsed.points,
       remark: values.remark,
     };
     if (editing) {
       await updateHole(editing.id, payload);
-      message.success(`已更新钻孔 ${payload.holeNo}`);
+      message.success(`已更新钻孔 ${payload.holeNo}，垂深已按新测斜成果重算`);
     } else {
       await addHole(payload);
       message.success(`已建孔 ${payload.holeNo}`);
     }
     setOpen(false);
+  };
+
+  const openImport = (record: DrillHole) => {
+    setImportHole(record);
+    setImportText('');
+    setImportErrors([]);
+  };
+
+  /** 弹窗内展示的钻孔以 store 最新值为准（合并后即时反映测点数） */
+  const importHoleCurrent = holes.find((h) => h.id === importHole?.id);
+
+  /** 合并补送成果：有效行入库（同孔深去重），无效行保留弹窗逐行报错 */
+  const submitImport = async () => {
+    if (!importHole) return;
+    const parsed = parseSurveyText(importText);
+    setImportErrors(parsed.errors);
+    if (parsed.points.length === 0) {
+      if (parsed.errors.length === 0) message.warning('请粘贴测量组补送的测斜成果');
+      return;
+    }
+    const stats = await mergeSurvey(importHole.id, parsed.points);
+    message.success(
+      `已合并测斜成果：新增 ${stats.added} 点 · 更新 ${stats.updated} 点 · 相同 ${stats.unchanged} 点` +
+        (parsed.errors.length ? ` · 跳过无效 ${parsed.errors.length} 行` : ''),
+    );
+    if (parsed.errors.length === 0) {
+      setImportHole(null);
+      setImportText('');
+    }
   };
 
   const columns: TableColumnsType<DrillHole> = [
@@ -146,7 +176,22 @@ export default function HoleList() {
       render: (_, row) => <span style={{ fontSize: 12 }}>{coverageText(row.id)}</span>,
     },
     { title: '岩芯箱', width: 90, align: 'right', render: (_, row) => `${boxes.filter((b) => b.holeId === row.id).length} 箱` },
-    { title: '测斜点', width: 90, align: 'right', render: (_, row) => `${row.surveyData.length} 点` },
+    {
+      title: '测斜成果',
+      width: 150,
+      render: (_, row) => {
+        const track = tracks.get(row.id);
+        const invalid = track?.invalidPoints.length ?? 0;
+        return (
+          <Space size={4} wrap>
+            <span>
+              {row.surveyData.length} 点{track && track.maxDepth > 0 ? ` · 覆盖至 ${track.maxDepth}m` : ''}
+            </span>
+            {invalid > 0 ? <Tag color="orange">{invalid} 点无效</Tag> : null}
+          </Space>
+        );
+      },
+    },
     {
       title: '状态',
       width: 140,
@@ -158,10 +203,13 @@ export default function HoleList() {
     },
     {
       title: '操作',
-      width: 150,
+      width: 220,
       fixed: 'right',
       render: (_, record) => (
         <Space size={2}>
+          <Button size="small" type="link" onClick={() => openImport(record)}>
+            补送测斜
+          </Button>
           <Button size="small" type="link" onClick={() => openEdit(record)}>
             编辑
           </Button>
@@ -265,14 +313,56 @@ export default function HoleList() {
               <DatePicker style={{ width: 180 }} />
             </Form.Item>
           </Space>
-          <Form.Item name="surveyText" label="测斜数据（每行：深度,倾角,方位角）">
+          <Form.Item name="surveyText" label="测斜数据（每行：孔深,倾角,方位角；倾角 90°=垂直孔）">
             <Input.TextArea rows={3} placeholder={'50,88.5,132\n100,87.2,133.5'} />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={2} maxLength={80} placeholder="设计见矿层位等" />
           </Form.Item>
         </Form>
-        <Alert type="info" showIcon message="终孔深度小于设计孔深时，将自动计入「未达设计 · 待补勘」清单。" />
+        <Alert
+          type="info"
+          showIcon
+          message="测斜成果只用于换算垂深：补测或改点只影响垂深一栏，回次、岩芯箱与岩性的孔深不受影响。终孔深度小于设计孔深时，将自动计入「未达设计 · 待补勘」清单。"
+        />
+      </Modal>
+
+      <Modal
+        open={importHole !== null}
+        title={`补送测斜成果 · ${importHole?.holeNo ?? ''}`}
+        onCancel={() => setImportHole(null)}
+        onOk={submitImport}
+        okText="合并导入"
+        cancelText="取消"
+        width={640}
+      >
+        <Paragraph type="secondary" style={{ fontSize: 13 }}>
+          粘贴测量组补送的测斜成果（每行：孔深,倾角,方位角）。按测点孔深去重合并：同深度同值不变、异值更新、新深度追加，
+          同一份成果重复补送不会多出测点。当前已有 {importHoleCurrent?.surveyData.length ?? 0} 点。
+        </Paragraph>
+        <Input.TextArea
+          rows={6}
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder={'150,86.4,134\n200,85.9,135.2'}
+        />
+        {importErrors.length > 0 ? (
+          <Alert
+            style={{ marginTop: 10 }}
+            type="warning"
+            showIcon
+            message={`${importErrors.length} 行无效已跳过（修正后可再次补送，已合并的测点不会重复）`}
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {importErrors.map((e) => (
+                  <li key={e.line}>
+                    第 {e.line} 行「{e.text}」：{e.reason}
+                  </li>
+                ))}
+              </ul>
+            }
+          />
+        ) : null}
       </Modal>
     </div>
   );

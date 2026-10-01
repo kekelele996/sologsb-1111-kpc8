@@ -5,11 +5,14 @@ import dayjs, { type Dayjs } from 'dayjs';
 import BoxGrid from '../components/common/BoxGrid';
 import DepthRangeInput from '../components/common/DepthRangeInput';
 import EmptyPanel from '../components/common/EmptyPanel';
+import TvdRange from '../components/common/TvdRange';
+import { useSurveyTracks } from '../hooks/useSurvey';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useBoxStore } from '../stores/boxStore';
 import { SHELF_POSITIONS, type CoreBox, type BoxContinuity } from '../types/core-box';
 import { boxCapacityOk, checkBoxContinuity, validateRange } from '../utils/recovery';
+import { convertSegment, EMPTY_TRACK } from '../utils/survey';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -51,6 +54,7 @@ export default function CoreBoxList() {
   const updateBox = useBoxStore((s) => s.updateBox);
   const removeBox = useBoxStore((s) => s.removeBox);
   const toggleDamagedSlot = useBoxStore((s) => s.toggleDamagedSlot);
+  const tracks = useSurveyTracks();
 
   const [form] = Form.useForm<BoxFormValues>();
   const [open, setOpen] = useState(false);
@@ -152,7 +156,12 @@ export default function CoreBoxList() {
 
   const columns: TableColumnsType<CoreBox> = [
     { title: '箱号', dataIndex: 'boxNo', width: 130, render: (v: string) => <Text strong>{v}</Text> },
-    { title: '深度区间(m)', width: 130, render: (_, row) => `${row.fromDepth}~${row.toDepth}` },
+    { title: '孔深区间(m)', width: 120, render: (_, row) => `${row.fromDepth}~${row.toDepth}` },
+    {
+      title: '垂深区间(m)',
+      width: 140,
+      render: (_, row) => <TvdRange conversion={convertSegment(tracks.get(row.holeId) ?? EMPTY_TRACK, row.fromDepth, row.toDepth)} />,
+    },
     { title: '格数', dataIndex: 'slots', width: 70, align: 'right' },
     { title: '每格长度(m)', dataIndex: 'slotLength', width: 110, align: 'right' },
     { title: '库架位', dataIndex: 'shelfPos', width: 110 },
@@ -204,7 +213,9 @@ export default function CoreBoxList() {
       <Title level={3} style={{ marginBottom: 4 }}>
         岩芯箱编目与格位分配
       </Title>
-      <Paragraph type="secondary">按深度区间分配格位，装箱时校验区间与回次是否连续；断档在格位网格中以虚线标出，破损格可点击切换标记。</Paragraph>
+      <Paragraph type="secondary">
+        按孔深区间分配格位（格位与样品号只按孔深对应），装箱时校验区间与回次是否连续；垂深由测斜成果换算、只读展示。断档在格位网格中以虚线标出，破损格可点击切换标记。
+      </Paragraph>
 
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
@@ -246,7 +257,7 @@ export default function CoreBoxList() {
           </Col>
           <Col xs={24}>
             <Card size="small" title="岩芯箱台账">
-              <Table rowKey="id" size="small" columns={columns} dataSource={holeBoxes} pagination={{ pageSize: 6 }} scroll={{ x: 1400 }} />
+              <Table rowKey="id" size="small" columns={columns} dataSource={holeBoxes} pagination={{ pageSize: 6 }} scroll={{ x: 1540 }} />
             </Card>
           </Col>
         </Row>

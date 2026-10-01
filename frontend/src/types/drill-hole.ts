@@ -1,13 +1,20 @@
 /** 钻孔测斜点 */
 export interface SurveyPoint {
   id: string;
-  /** 测点深度（m） */
+  /** 测点深度（m，孔深） */
   depth: number;
-  /** 倾角（°） */
+  /** 倾角（°，90=垂直孔） */
   dip: number;
   /** 方位角（°） */
   azimuth: number;
 }
+
+/**
+ * 深度基准：md=孔深（沿孔进尺，地质编录与岩芯箱格位、样品号的唯一依据），
+ * tvd=垂深（由测斜成果换算派生，供设计部门剖面使用）。
+ * 两套深度各自持有：孔深落库，垂深换算，互不覆盖。
+ */
+export type DepthBasis = 'md' | 'tvd';
 
 /** 钻孔台帐 */
 export interface DrillHole {

@@ -4,6 +4,8 @@ import type { TableColumnsType } from 'antd';
 import DepthRangeInput from '../components/common/DepthRangeInput';
 import LithoColumn from '../components/common/LithoColumn';
 import EmptyPanel from '../components/common/EmptyPanel';
+import TvdRange from '../components/common/TvdRange';
+import { useSurveyTracks } from '../hooks/useSurvey';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useLithoStore } from '../stores/lithoStore';
@@ -17,6 +19,7 @@ import {
   type Mineralization,
 } from '../types/litho-log';
 import { gapsWithin, validateRange } from '../utils/recovery';
+import { convertSegment, EMPTY_TRACK } from '../utils/survey';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -46,6 +49,7 @@ export default function LithoEditor() {
   const updateLitho = useLithoStore((s) => s.updateLitho);
   const removeLitho = useLithoStore((s) => s.removeLitho);
   const checkConflicts = useLithoStore((s) => s.checkConflicts);
+  const tracks = useSurveyTracks();
 
   const [form] = Form.useForm<LithoFormValues>();
   const [open, setOpen] = useState(false);
@@ -159,7 +163,12 @@ export default function LithoEditor() {
   };
 
   const columns: TableColumnsType<LithoLog> = [
-    { title: '深度区间(m)', width: 130, render: (_, row) => <Text strong>{`${row.fromDepth}~${row.toDepth}`}</Text> },
+    { title: '孔深区间(m)', width: 120, render: (_, row) => <Text strong>{`${row.fromDepth}~${row.toDepth}`}</Text> },
+    {
+      title: '垂深区间(m)',
+      width: 140,
+      render: (_, row) => <TvdRange conversion={convertSegment(tracks.get(row.holeId) ?? EMPTY_TRACK, row.fromDepth, row.toDepth)} />,
+    },
     { title: '厚度(m)', width: 90, align: 'right', render: (_, row) => Number((row.toDepth - row.fromDepth).toFixed(2)) },
     { title: '岩性', dataIndex: 'lithology', width: 130, render: (v: string) => <Tag color="geekblue">{v}</Tag> },
     { title: '颜色', dataIndex: 'color', width: 90 },
@@ -194,7 +203,7 @@ export default function LithoEditor() {
         岩性描述编录
       </Title>
       <Paragraph type="secondary">
-        按深度区间编录岩性、蚀变、矿化与 RQD，区间不允许与已编录区间重叠（重叠即报冲突并高亮）；右侧柱状图叠加样品位与采取率异常段。
+        按孔深区间编录岩性、蚀变、矿化与 RQD（样品号只按孔深对应），区间不允许与已编录区间重叠（重叠即报冲突并高亮）；垂深由测斜成果换算、只读展示。右侧柱状图叠加样品位与采取率异常段。
       </Paragraph>
 
       <Space style={{ marginBottom: 12 }} wrap>
@@ -229,7 +238,7 @@ export default function LithoEditor() {
                 columns={columns}
                 dataSource={holeLogs}
                 pagination={{ pageSize: 8 }}
-                scroll={{ x: 1250 }}
+                scroll={{ x: 1400 }}
                 rowClassName={(row) => (conflictIds.includes(row.id) ? 'conflict-row' : '')}
               />
             </Card>
